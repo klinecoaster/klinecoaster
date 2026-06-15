@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>K 線雲霄飛車 · Candlestick Coaster</title>
+  <meta name="description" content="把股票 K 線圖當成雲霄飛車來騎的第一人稱網頁遊戲。下殺俯衝、上漲爬升，挑戰最大尖叫值。" />
+  <link rel="stylesheet" href="./css/style.css?v=14" />
+  <!-- Three.js 採內嵌版本，部署不依賴外部 CDN -->
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene"></canvas>
+
+    <!-- ===== 廣告版位：頂部橫幅。先隱藏，未來要用把 display:none 拿掉、或換成 AdSense 代碼 ===== -->
+    <div id="ad-top" class="ad-slot" style="display:none">廣告版位 728×90（見 README）</div>
+    <!--
+      <ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-XXXX"
+           data-ad-slot="YYYY" data-ad-format="auto"></ins>
+    -->
+
+    <!-- HUD -->
+    <div id="hud">
+      <div id="s-price" class="stat"><div class="label">收盤價</div><div class="val" id="v-price">—</div></div>
+      <div id="s-dist"  class="stat"><div class="label">天數 / 時間</div><div class="val" id="v-dist">0</div><div id="v-time" style="font-size:13px;color:var(--muted);line-height:1.1">0:00</div></div>
+      <div id="s-speed" class="stat"><div class="label">時速</div><div class="val" id="v-speed">0 <small>km/h</small></div></div>
+      <div id="s-g"     class="stat"><div class="label">G 力 / 最大尖叫</div><div class="val" id="v-g">0.0 <small>G</small></div></div>
+      <div id="gbar-wrap"><div id="gbar"></div></div>
+      <div id="map"><canvas id="mapcv" width="220" height="64"></canvas></div>
+    </div>
+
+    <div id="vignette"></div>
+    <div id="speedlines"></div>
+    <div id="flash"></div>
+    <div id="warn" style="display:none">⚠️ 彎太急 —— 快煞車！</div>
+    <div id="reward" style="display:none">💰 發薪日！油門 + 煞車補滿</div>
+    <button class="mute" id="mute" style="display:none">🔊 音效</button>
+    <button id="cfg-toggle" class="cfg-toggle" style="display:none" aria-label="調整面板">⚙️ 調整</button>
+    <div id="cfg-panel" class="cfg-panel" style="display:none"></div>
+    <div class="hint" id="hint" style="display:none">油門 ↑/空白（有能量限制）　·　煞車 ↓（會過熱）　·　撐久會補給　·　彎/坡頂太快會翻車</div>
+
+    <!-- 觸控/滑鼠控制：左下煞車（有限、過熱條）、右下衝刺 -->
+    <div id="controls" style="display:none">
+      <button id="btn-brake" class="ctrl brake" aria-label="煞車">
+        <span class="ic" aria-hidden="true">⛔</span><span class="lbl">煞車</span>
+        <span class="heat"><span id="heatbar"></span></span>
+      </button>
+      <button id="btn-boost" class="ctrl boost" aria-label="油門加速">
+        <span class="ic" aria-hidden="true">⚡</span><span class="lbl">油門</span>
+        <span class="heat"><span id="energybar"></span></span>
+      </button>
+    </div>
+
+    <!-- 開始畫面 -->
+    <div class="overlay" id="start">
+      <h1>K 線雲霄飛車</h1>
+      <p class="sub">坐進台車，沿著股票收盤價軌道俯衝。下殺越陡、速度越快，尖叫值越高。
+        綠棒上漲爬坡、紅棒下跌俯衝 —— 你能撐過這段行情嗎？</p>
+      <div class="search">
+        <input id="q" type="text" placeholder="輸入代號，例 BTC、ETH、AAPL、TSLA" autocomplete="off" />
+        <select id="qtype">
+          <option value="auto">自動</option>
+          <option value="crypto">加密貨幣</option>
+          <option value="stock">股票</option>
+        </select>
+        <button id="qgo" class="primary">查詢出發</button>
+      </div>
+      <div id="qmsg"></div>
+      <p class="sub" style="font-size:13px;margin-top:-4px">或選精選關卡挑戰排行榜（同標的賽道對所有人完全相同），也可自由練習。</p>
+      <div id="catalog"></div>
+      <div class="row" style="margin-top:6px">
+        <button id="btn-random" class="ghost">🎲 隨機練習</button>
+        <div class="field">波動度
+          <input type="range" id="vol" min="2" max="10" step="1" value="5" />
+          <span id="volval">5</span>
+        </div>
+        <label class="filebtn" for="file">📂 載入我的 K 線</label>
+        <input type="file" id="file" accept=".csv,.json,.txt" />
+      </div>
+    </div>
+
+    <!-- 結束畫面 -->
+    <div class="overlay hidden" id="end">
+      <h1 id="end-title">抵達終點！</h1>
+      <p class="sub" id="end-label"></p>
+      <div class="results">
+        <div class="big" id="r-dist">0<small>撐過天數</small></div>
+        <div class="big" id="r-g">0.0<small>最大尖叫 (G)</small></div>
+      </div>
+      <!-- 排行榜（排行模式才顯示）-->
+      <div id="lb-box" style="display:none">
+        <div class="lb-submit">
+          <input id="lb-name" type="text" maxlength="12" placeholder="你的名字" />
+          <button id="lb-send" class="primary">送出成績</button>
+        </div>
+        <div id="lb-title">🏆 排行榜</div>
+        <ol id="lb-list"></ol>
+      </div>
+      <div class="row">
+        <button class="primary" id="btn-again">🔁 再騎一次</button>
+        <button id="btn-share">📤 分享成績</button>
+        <button class="ghost" id="btn-menu">回主畫面</button>
+      </div>
+      <!-- ===== 廣告版位：結束畫面 300×100 ===== -->
+      <div id="ad-end" class="ad-slot">廣告版位 300×100</div>
+    </div>
+
+    <div class="disclaimer">遊戲娛樂用途，非投資建議。Not investment advice.</div>
+  </div>
+
+  <script type="module" src="./js/main.js?v=14"></script>
+</body>
+</html>
